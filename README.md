@@ -108,7 +108,7 @@ video_anomaly_detection/
 ### 2. Install
 
 ```bash
-git clone <repo>
+git clone <https://github.com/anshulec23-cloud>
 cd video_anomaly_detection
 
 python -m venv .venv
