@@ -40,6 +40,11 @@ class AnomalyDetector:
         # Per-track loiter counter: {track_id: (frames_in_zone, anchor_pos)}
         self._loiter: Dict[int, dict] = {}
 
+        # Last frame an event was emitted, per (track_id, anomaly_type).
+        # Tracks stay flagged every frame, but events are rate-limited so a
+        # single loiterer does not produce one alert per frame.
+        self._last_alert: Dict[Tuple[int, str], int] = {}
+
         self._try_load_model()
 
     # ── Public API ──────────────────────────────────────────────────────────
@@ -62,6 +67,10 @@ class AnomalyDetector:
             self._features.update(track.track_id, track.bbox_xyxy, frame_w, frame_h)
 
         self._features.prune(active_ids)
+        self._loiter = {k: v for k, v in self._loiter.items() if k in active_ids}
+        self._last_alert = {
+            k: v for k, v in self._last_alert.items() if k[0] in active_ids
+        }
 
         events: List[AnomalyEvent] = []
 
@@ -83,6 +92,12 @@ class AnomalyDetector:
             track.is_anomaly     = True
             track.anomaly_type   = anomaly_type
             track.anomaly_score  = confidence
+
+            key  = (track.track_id, anomaly_type)
+            last = self._last_alert.get(key)
+            if last is not None and frame_number - last < settings.alert_cooldown_frames:
+                continue
+            self._last_alert[key] = frame_number
 
             events.append(
                 AnomalyEvent(

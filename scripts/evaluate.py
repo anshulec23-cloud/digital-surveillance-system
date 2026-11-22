@@ -29,6 +29,9 @@ from typing import Dict, List, Set, Tuple
 import cv2
 import numpy as np
 
+# Allow `python scripts/evaluate.py` from the project root without PYTHONPATH.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 
 # ── Label loader ──────────────────────────────────────────────────────────────
 
@@ -138,13 +141,16 @@ def run_pipeline(video_path: str, synthetic_labels: bool = False) -> Tuple[List[
         tracks = tracker.update(dets, frame)
         events = anomaly.update(tracks, frame_hw=(H, W), frame_number=frame_no)
 
-        for ev in events:
-            predictions.append({
-                "frame":      ev.frame_number,
-                "track_id":   ev.track_id,
-                "anomaly_type": ev.anomaly_type,
-                "confidence": ev.confidence,
-            })
+        # Score every frame in which a track is flagged. Alert *events* are
+        # rate-limited (ALERT_COOLDOWN_FRAMES), so they are not used here.
+        for t in tracks:
+            if t.is_anomaly:
+                predictions.append({
+                    "frame":        frame_no,
+                    "track_id":     t.track_id,
+                    "anomaly_type": t.anomaly_type or "unknown",
+                    "confidence":   t.anomaly_score,
+                })
 
     cap.release()
     elapsed = time.time() - t_start
@@ -198,4 +204,5 @@ def main():
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # report uses box-drawing chars (Windows console)
     main()

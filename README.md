@@ -8,7 +8,7 @@ Detects: running · loitering · fighting · unknown anomalies
 
 *Screenshot of the actual dashboard (`python main.py serve`) processing OpenCV's
 [`vtest.avi`](https://github.com/opencv/opencv/blob/4.x/samples/data/vtest.avi) pedestrian clip on CPU,
-rules-only mode (no trained LSTM checkpoint loaded).*
+rules-only mode (no trained LSTM checkpoint loaded). Red boxes are tracks currently flagged as anomalous.*
 
 ---
 
@@ -74,7 +74,7 @@ Video Input (file / webcam / RTSP)
 ## Folder Structure
 
 ```
-video_anomaly_detection/
+digital-surveillance-system/
 ├── core/
 │   ├── config.py          # Central settings (Pydantic)
 │   ├── logger.py          # JSONL event logger + in-memory ring buffer
@@ -92,10 +92,11 @@ video_anomaly_detection/
 │   ├── processor.py       # VideoProcessor (background thread)
 │   └── server.py          # FastAPI endpoints + WebSocket
 ├── frontend/
-│   └── index.html         # Single-file dashboard (no build step)
+│   └── index.html         # Single-file dashboard (plain HTML/JS, no build step)
 ├── scripts/
 │   ├── generate_test_video.py   # Synthetic CCTV video generator
 │   └── evaluate.py              # Offline evaluation / FPS benchmark
+├── tests/                 # pytest suite (model shapes, metric definitions)
 ├── models/                # Saved LSTM checkpoints
 ├── logs/                  # events.jsonl
 ├── main.py                # CLI entry point (run / serve / train)
@@ -114,8 +115,8 @@ video_anomaly_detection/
 ### 2. Install
 
 ```bash
-git clone <https://github.com/anshulec23-cloud>
-cd video_anomaly_detection
+git clone https://github.com/anshulec23-cloud/digital-surveillance-system.git
+cd digital-surveillance-system
 
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -154,7 +155,8 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 python main.py serve
 ```
 
-Open `http://localhost:8000` → upload a video or start webcam.
+Open `http://localhost:8000`, then **Open video…** to upload a file or **Start camera** for a webcam.
+The panel on the right shows pipeline status and a live alert list (pushed over `/ws/alerts`).
 
 ### B. CLI — process a file
 
@@ -267,21 +269,22 @@ python scripts/evaluate.py --video test_video.mp4 --synthetic
 python scripts/evaluate.py --video footage.mp4 --labels labels.csv
 ```
 
-Run the script from the project root with the root on `PYTHONPATH`
-(`PYTHONPATH=. python scripts/evaluate.py ...`; on Windows also set `PYTHONIOENCODING=utf-8`),
-otherwise it fails with `ModuleNotFoundError: No module named 'core'`.
-
 ### How the metrics are computed
 
-`scripts/evaluate.py` scores predictions per **(frame, track_id)** pair, not per frame:
+`scripts/evaluate.py` scores predictions per **(frame, track_id)** pair, not per frame. A prediction is
+every frame in which a track is flagged anomalous:
 
-- **TP**: a predicted event whose `(frame, track_id)` appears in the label CSV (the anomaly type does not have to match)
-- **FP**: a predicted event with no matching label row
-- **FN**: a labelled row with no predicted event
+- **TP**: a flagged `(frame, track_id)` that appears in the label CSV (the anomaly type does not have to match)
+- **FP**: a flagged `(frame, track_id)` with no matching label row
+- **FN**: a labelled row that was not flagged
 - Precision = TP/(TP+FP), Recall = TP/(TP+FN), F1 = 2PR/(P+R). True negatives are not counted, so no false-positive *rate* is computed.
 
 Without `--labels`, the script uses the pipeline's own predictions as ground truth. Precision, recall
 and F1 are then always 1.000 (or 0.000 when nothing is detected). That mode is only a smoke test and FPS benchmark.
+
+These definitions are pinned by [`tests/test_metrics.py`](tests/test_metrics.py), which includes a hand-worked
+example (3 TP, 1 FP, 1 FN → P = R = F1 = 0.75) and checks that self-eval mode always returns F1 = 1.0.
+Run it with `python -m pytest tests`.
 
 ### Accuracy benchmarks
 
@@ -308,6 +311,7 @@ Key settings in `core/config.py` (override via `.env`):
 | `SPEED_RUN_THRESHOLD` | `0.025` | Normalised speed to flag running |
 | `LOITER_FRAMES` | `90` | Frames in zone before loiter alert |
 | `FIGHT_PROXIMITY` | `0.15` | Normalised distance for fight check |
+| `ALERT_COOLDOWN_FRAMES` | `75` | Min frames between repeat alerts for the same track and type |
 | `SEQ_LEN` | `30` | LSTM input sequence length |
 | `STREAM_FPS_CAP` | `25` | Max dashboard stream FPS |
 
@@ -331,6 +335,9 @@ Frame
 The rule engine is always active. The LSTM adds sensitivity to
 patterns that don't match simple heuristics (unusual postures, gait).
 
+A track stays flagged (red box) for as long as a rule holds, but an alert event is only logged
+and pushed once per `ALERT_COOLDOWN_FRAMES` for the same track and anomaly type.
+
 ---
 
 ## Performance
@@ -339,7 +346,7 @@ Measured with `scripts/evaluate.py` (end-to-end: decode → YOLOv8n → DeepSORT
 
 | Hardware | Input | Throughput |
 |----------|-------|------------|
-| Intel Core i5-12450H (laptop CPU), PyTorch 2.15 CPU build | OpenCV `vtest.avi`, 768×576, 795 frames | 6.3 FPS |
+| Intel Core i5-12450H (laptop CPU), PyTorch 2.15 CPU build | OpenCV `vtest.avi`, 768×576, 795 frames | 5.4–6.3 FPS (2 runs) |
 
 The development machine's GPU is an **NVIDIA GeForce RTX 3050 Laptop GPU**. GPU throughput has not been measured yet;
 add a row here after running the same command with `YOLO_DEVICE=cuda` and a CUDA build of PyTorch.

@@ -212,4 +212,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Console output uses non-ASCII chars; avoid crashes on Windows code pages.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     main()

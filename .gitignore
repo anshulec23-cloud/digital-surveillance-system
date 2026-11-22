@@ -3,3 +3,8 @@ __pycache__/
 logs/
 .env
 .DS_Store
+
+# Runtime artefacts
+uploads/
+*.pt
+.venv/

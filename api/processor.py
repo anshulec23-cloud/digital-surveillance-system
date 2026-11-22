@@ -40,10 +40,8 @@ ANOMALY_LABELS = {
 
 def _annotate(frame: np.ndarray, tracks, events: list, frame_no: int) -> np.ndarray:
     """Draw bounding boxes, labels, and a HUD overlay on the frame."""
-    anomaly_ids = {e.track_id for e in events}
-
     for track in tracks:
-        color = settings.anomaly_color if track.track_id in anomaly_ids else settings.normal_color
+        color = settings.anomaly_color if track.is_anomaly else settings.normal_color
         label_parts = [f"#{track.track_id}"]
         if track.is_anomaly and track.anomaly_type:
             label_parts.append(ANOMALY_LABELS.get(track.anomaly_type, "!"))
@@ -61,7 +59,7 @@ def _annotate(frame: np.ndarray, tracks, events: list, frame_no: int) -> np.ndar
         {
             "Frame":   frame_no,
             "Tracks":  len(tracks),
-            "Alerts":  len(events),
+            "Flagged": sum(1 for t in tracks if t.is_anomaly),
         },
     )
     return frame

@@ -17,6 +17,7 @@ Usage:
 import argparse
 import math
 import random
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import List, Tuple
@@ -187,4 +188,5 @@ def main():
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # progress output uses non-ASCII chars
     main()

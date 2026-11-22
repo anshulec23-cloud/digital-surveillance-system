@@ -79,24 +79,33 @@ ws_manager = ConnectionManager()
 
 # ── Processor singleton ───────────────────────────────────────────────────────
 
+_main_loop: asyncio.AbstractEventLoop | None = None
+
+
 def _alert_cb(event_dict: dict):
-    """Sync callback that schedules a coroutine on the event loop."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.run_coroutine_threadsafe(ws_manager.broadcast(event_dict), loop)
-    except Exception:
-        pass
+    """
+    Called from the processor's background thread. Schedules the broadcast on
+    the server's event loop (captured at startup); a worker thread has no loop
+    of its own, so asyncio.get_event_loop() cannot be used here.
+    """
+    if _main_loop is not None and _main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(event_dict), _main_loop)
 
 
 processor = VideoProcessor(alert_callback=_alert_cb)
+
+
+@app.on_event("startup")
+async def _capture_loop():
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
     if FRONTEND_PATH.exists():
-        async with aiofiles.open(FRONTEND_PATH, "r") as f:
+        async with aiofiles.open(FRONTEND_PATH, "r", encoding="utf-8") as f:
             return HTMLResponse(await f.read())
     return HTMLResponse("<h1>Frontend not found</h1><p>Run from project root.</p>")
 

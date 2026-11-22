@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     loiter_displacement: float = 0.08       # max displacement for loiter check
     fight_proximity: float = 0.15          # normalised distance to consider "close"
     fight_speed_threshold: float = 0.018
+    alert_cooldown_frames: int = 75         # min frames between repeat alerts (same track + type)
 
     # ── API ────────────────────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
