@@ -4,7 +4,11 @@ AI-powered surveillance pipeline: **YOLOv8 → DeepSORT → LSTM Autoencoder**
 
 Detects: running · loitering · fighting · unknown anomalies
 
-![SENTINEL Surveillance Dashboard Mockup](assets/dashboard_demo.jpg)
+![SENTINEL dashboard processing OpenCV's vtest.avi sample clip](assets/dashboard_screenshot.png)
+
+*Screenshot of the actual dashboard (`python main.py serve`) processing OpenCV's
+[`vtest.avi`](https://github.com/opencv/opencv/blob/4.x/samples/data/vtest.avi) pedestrian clip on CPU,
+rules-only mode (no trained LSTM checkpoint loaded).*
 
 ---
 
@@ -15,7 +19,7 @@ Video Input (file / webcam / RTSP)
         │
         ▼
 ┌─────────────────────┐
-│   detection/        │  YOLOv8n — person bounding boxes @ 25+ FPS
+│   detection/        │  YOLOv8n — person bounding boxes
 │   PersonDetector    │
 └────────┬────────────┘
          │ DetectionResult[]
@@ -122,18 +126,9 @@ pip install -r requirements.txt
 YOLOv8 weights download automatically on first run (`yolov8n.pt` ~6 MB).
 
 ### 3. Pre-trained Model Weights
-The weights for the unsupervised LSTM Autoencoder are excluded from version control. You can download pre-trained weights directly from the GitHub Release page:
-
-```bash
-# Create models directory if it doesn't exist
-mkdir -p models
-
-# Download via curl
-curl -L -o models/lstm_autoencoder.pt https://github.com/anshulec23-cloud/digital-surveillance-system/releases/download/v1.0.0/lstm_autoencoder.pt
-
-# Or via wget
-wget -O models/lstm_autoencoder.pt https://github.com/anshulec23-cloud/digital-surveillance-system/releases/download/v1.0.0/lstm_autoencoder.pt
-```
+LSTM Autoencoder weights are not in version control, and no pre-trained checkpoint is published yet.
+Train one with `python main.py train` (see [Training the LSTM Autoencoder](#training-the-lstm-autoencoder));
+it is saved to `models/lstm_autoencoder.pt`. Without a checkpoint the system runs in rules-only mode.
 
 ### 4. Environment (optional)
 
@@ -272,16 +267,32 @@ python scripts/evaluate.py --video test_video.mp4 --synthetic
 python scripts/evaluate.py --video footage.mp4 --labels labels.csv
 ```
 
-### Quantitative Benchmarks (Real-World Datasets)
-While the unsupervised LSTM Autoencoder can be trained synthetically, the pipeline has been benchmarked across standard public surveillance datasets to validate real-world detection efficacy. The table below reports frame-level performance metrics when trained on normal activity and evaluated on anomalous events (such as running, loitering, and physical aggression):
+Run the script from the project root with the root on `PYTHONPATH`
+(`PYTHONPATH=. python scripts/evaluate.py ...`; on Windows also set `PYTHONIOENCODING=utf-8`),
+otherwise it fails with `ModuleNotFoundError: No module named 'core'`.
 
-| Dataset | Metric Type | Precision | Recall | F1-Score | FP Rate | FN Rate | Throughput (CPU) | Throughput (GPU) |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **UCSD Ped2** | Frame-Level | 0.892 | 0.875 | 0.883 | 8.5% | 12.5% | ~15.2 FPS | ~48.7 FPS |
-| **CUHK Avenue** | Frame-Level | 0.865 | 0.841 | 0.853 | 11.2% | 15.9% | ~12.4 FPS | ~42.1 FPS |
-| **ShanghaiTech** | Frame-Level | 0.824 | 0.803 | 0.813 | 14.1% | 19.7% | ~10.1 FPS | ~38.2 FPS |
+### How the metrics are computed
 
-*Benchmarks evaluated using YOLOv8n (nano) detector, DeepSORT tracking, and LSTM sequence length `SEQ_LEN = 30` on Intel i7-11700K (CPU) and NVIDIA RTX 3060 (GPU).*
+`scripts/evaluate.py` scores predictions per **(frame, track_id)** pair, not per frame:
+
+- **TP**: a predicted event whose `(frame, track_id)` appears in the label CSV (the anomaly type does not have to match)
+- **FP**: a predicted event with no matching label row
+- **FN**: a labelled row with no predicted event
+- Precision = TP/(TP+FP), Recall = TP/(TP+FN), F1 = 2PR/(P+R). True negatives are not counted, so no false-positive *rate* is computed.
+
+Without `--labels`, the script uses the pipeline's own predictions as ground truth. Precision, recall
+and F1 are then always 1.000 (or 0.000 when nothing is detected). That mode is only a smoke test and FPS benchmark.
+
+### Accuracy benchmarks
+
+**No accuracy benchmark has been published yet.** An earlier version of this README listed precision/recall/F1
+for UCSD Ped2, CUHK Avenue and ShanghaiTech. Nothing in this repository produces those numbers: there are no
+dataset loaders, no label converters and no result logs. Those datasets also ship frame-level or pixel-level
+labels, not the `frame,track_id,anomaly_type` CSV that `evaluate.py` expects. The table has been removed.
+
+To report real numbers, convert a dataset's ground truth into that CSV format and run
+`evaluate.py --labels`. Note that published results on these datasets are normally reported as frame-level
+AUC, so per-track F1 from this script is not directly comparable to them.
 
 ---
 
@@ -324,11 +335,13 @@ patterns that don't match simple heuristics (unusual postures, gait).
 
 ## Performance
 
-On CPU (Intel i7, yolov8n):
-- ~8–12 FPS on 720p video
-- ~18–25 FPS on 480p video
+Measured with `scripts/evaluate.py` (end-to-end: decode → YOLOv8n → DeepSORT → anomaly rules), yolov8n, default settings, rules-only (no LSTM checkpoint):
 
-On GPU (RTX 3050, yolov8n):
-- ~35–55 FPS on 720p video
+| Hardware | Input | Throughput |
+|----------|-------|------------|
+| Intel Core i5-12450H (laptop CPU), PyTorch 2.15 CPU build | OpenCV `vtest.avi`, 768×576, 795 frames | 6.3 FPS |
+
+The development machine's GPU is an **NVIDIA GeForce RTX 3050 Laptop GPU**. GPU throughput has not been measured yet;
+add a row here after running the same command with `YOLO_DEVICE=cuda` and a CUDA build of PyTorch.
 
 Switch to `yolov8n.pt` (default) for speed, `yolov8s.pt` for accuracy.
